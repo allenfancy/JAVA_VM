@@ -1,0 +1,224 @@
+虚拟机JDK的命令行工具：
+	1.JPS：虚拟机进行状态工具
+		-q:只输出LVMDID,省略主类的名称
+		-m:输出虚拟机进程启动时传递主类main（）函数的参数
+		-l:输出主类的全名，如果进程执行的是jar包，则输出Jar路径
+		-v:输出虚拟机进程启动时JVM参数
+		
+	2.jstat:虚拟机统计信息监视工具
+		jstat是用于监视虚拟机各种运行状态信息的命令行工具。它可以显示本地或者远程虚拟机进程中得类装载、内存、垃圾收集、JIT编译等运行数据，
+			-class ： 监视类装载，卸载数量，总空间以及类装载所消耗的时间
+			-gc	   ： 监视Java堆状态，包括Eden区、俩个survivor区，老年代、永久代等的容量，已用空间、GC时间合计等信息
+			-gccapacity:监视内容与-gc基本相同，但输出主要关注Java堆各个区域使用到的最大、最小空间
+			-gcutil:	监视内容与-gc基本相同，但输出主要关注已使用空间占总空间的百分比
+			-gcnew:	监视新生代GC状态
+			-gcnewcapacity:	监视内容与 -gcnew基本相同，输出内容关注到的最大、最小空间
+			-gccold:监视老年代GC状态
+			-gcoldcapacity:监视内容-gcold基本相同，输出主要关注使用到的最大、最小空间
+			-gcpermcapacity:输出永久代使用到的最大、最小空间
+			-compile:输出JFT编译器编译过的方法、耗时等信息
+			-printcompilation:输出已经等JFT编译的方法
+			
+	3.jinfo:Java配置信息工具：
+		jinfo的作用是实时地查看和调整虚拟机各项参数。使用jps命令的-v参数可以查看虚拟机启动时显示置顶的参数列表
+		
+	4.jmap:java内存映象工具
+		jmap命令用于生产堆转存储快照
+		
+	5.jhat：虚拟机堆转储快照分析工具
+		分析jmap生成的堆转储快照。
+		
+	6.jstack：Java堆栈跟踪工具
+		jstack命令用于生成虚拟机当期时刻的线程快照
+		
+	7.HSDIS：JIT生成代码反汇编
+		jconsole:Java监视与管理控制台
+		visualvm: 
+		
+（何时抛出OutOfMemeoryException:
+	并不是内存被消耗空得时候才会抛出，
+	
+	1.JVM98%的时间都花费在内存回收
+	2.每次回收的内存小于2%
+	而是满足以上俩个条件将触发OutOfMemeoryException.
+	这会给系统留出一些间隙做一些Down操作，比如：：Heap Dump。
+）
+		
+		
+一、JVM内存模型：
+	Java虚拟机规范，JVM将内存划分：
+		New(年轻代)
+		Tenured(年老代)
+		Perm(永久代)
+	其中New和Tenured属于堆内存，堆内存会从JVM启动参数(-Xmx:512M)指定的内存中分配，Perm不属于堆内存，有虚拟机直接分配，但可以通过，XX:PermSize -XX:MaxPermSize等参数调整其大小。
+		年轻代(new):年轻代用来存放JVM刚分配的JAVA对象
+		老年代(Tenured):年轻代中经过垃圾回收后，没有回收的对象将会被复制到年老代
+		永久代(Perm):永久代存放Class、Method元信息，其大小根项目的规模、类、方法的量有关，一般设置为128M。设置原则是预留30%的空间
+	New(年轻代)又分为：
+		Eden：Eden用来存放JVM刚分配的对象
+		Subvivor1:
+		Subvivor2:俩个Subvivor空间一样大，当Eden中的对象经过垃圾回收，但是没有被回收掉时，会在俩个Survivor之间来回复制，当满足某个条件时(复制次数)，就会被复制到老年代。Survivor只是增加对象在年轻代中存在时间，增加被回收的可能性。
+		
+二、垃圾回收算法：
+	垃圾回收算法可以分为三类，但是这些算法都是基于标记-消除算法：
+		Serial算法（单线程）
+		并行算法
+		并发算法
+	JVM会根据机器的硬件配置每个内存代选择合适的回收算法。例如：机器大于1个核，会对年轻代选择并行算法。
+	并行算法是用多线程进行垃圾回收，回收期间会暂停程序的执行，而并发算法，也是多线程回收，但期间期间不停止应用执行。
+	因此，并发算法适合交互性高的一些程序。
+	
+	垃圾回收执行过程：
+		1.当年轻带内存满时，会引器一次普通的GC，该GC仅回收年轻代中的不常使用或者不会在使用的对象。（年轻代满是指的Eden代满，Survivor满不会引发GC）.
+		2.当老年代满时会触发Full GC，Full GC 将会同时回收年轻代、老年代
+		3.当永久代满时会触发Full GC，会导致Class、Method元信息卸载。
+		
+三、内存泄露及解决方法：
+	1.系统奔溃征兆：
+		1.每次垃圾回收的时间越来越长，由之前的10ms延长到50ms左右，FullGC的时间也有之前的0.5s延长到5s
+			原因：根据内存模型和垃圾回收算法，垃圾回收分为俩个部分：内存标记、消除(复制)，标记部分只要内存大小固定时间是不变的，变的是复制部分，因为每次垃圾回收都有一些回收不掉的内存，所以在每下一次复制的量都会增加，导致时间延长。
+		2.FullGC的次数越来越多。
+			原因：内存的积累，逐渐消耗了老年代的内存，导致新对象分配没有更多的空间，从而导致频繁的垃圾回收
+		3.老年代的内存越来越大并每次FullGC后老年代没有内存释放。
+			原因：因为年轻代的内存无法被回收，越来越多地被Copy到老年代
+		
+		
+	2.生成堆的dump文件
+		通过JMX的MBean生成当前的Heap信息，大小为一个3G的hprof文件，如果没有启动JMX可以通过Java的jmap命令来生成该文件。
+		
+	3.分析dump文件
+		打开文件工具：
+		.Visual VM
+		.IBM HeapAnalyzer
+		.JDK自带的Hprof工具
+	4.分析内存泄露
+		通过Mat，可以分析出哪些对象怀疑为内存泄露，哪些对象占的空间最大及对象的调用关系。
+		通过Mat或JMX可以分析线程状态，可以观察到线程被阻塞在哪个对象上，从而判断系统的瓶颈	。
+四、性能调优：
+	1.线程池：解决用户响应时间长的问题
+		jVM6上得应用采用的线程池都是JDK自带的线程池。Java线程池有几个重要的配置参数：
+		1.corePoolSize：核心线程数（最新线程数）
+		2.maximumPoolSize：最大线程数，超过这个数量的任务会被拒绝，用户可以通过RejectedExecutionHandler接口自定义处理方式
+		3.keepAliveTime:线程保持活动的时间
+		4.workQueue：工作队列，存放执行的任务
+		Java线程池需要传入一个Queue参数(workQueue)用来存放执行的任务，而对Queue的不同选择，线程池有完全不同的行为：
+		1.SynchronizedQueue：一个没有容量的等待队列，一个线程的insert操作必须等待另一个线程的remove操作，采用这个Queue线程池将会为每个任务分配一个新线程。
+		2.LinkedBlockingQueue：无界队列，采用该Queue，线程池将忽略maximumPoolSize参数，仅用corePoolSize的线程处理所有的任务，未处理的任务便在LinkedBlockingQueue中排队。
+		3.ArrayBlockingQueue：有界队列，在有界队列和maximumPoolSize的作用下，程序将很难被调优：更大的 Queue和小得maximumPoolSize就爱那个导致CPU的低负荷；小得Queue和大得池，Queue就没启动应有的作用。
+	2.连接池
+	3.JVM启动参数：调整各代的内存比例和垃圾回收算法，提高吞吐量
+		JVM启动参数中，可以设置跟内存，垃圾回收相关的一些参数设置，默认情况下不做任何设置的JVM会工作很不错，但对一些配置很好的Server和具体的应用必须仔细调优才能获取最佳性能。
+			GC的时间足够小
+			GC的次数足够少
+			发生Full GC的周期足够长
+			
+			1.JVM堆的设置一般，可以通过【-Xms】 【-Xmx】限定其最小、最大值，为了防止垃圾收集器在最小、最大之间收缩队而产生额外的时间。通过设置成一样的。
+			2.年轻代和老年代将根据默认的比例(1:2)分配堆内存，可以通过调整两者之间的比率NewRadio来调整连你跟着之间的大小，也可以针对回收代，比如年轻代，通过设置-XX:newSize -XX:MaxNewSize来设置绝对大小。
+			同样，为了防止年轻代的堆收缩，通常会把-XX:newSize -XX:MaxNewSize设置为同样的值。
+			观察年轻代和老年代受那些影响从而设置合适的大小：
+			 a.更大的年轻代必然导致更小的老年代，大的年轻代会延长普通GC的周期，但会增加每次GC的时间；小的老年代会导致更加频发的Full GC。
+			 b.更小的年轻代必然导致更大的年老代，小的年轻代会导致普通GC很频繁，但每次的GC时间会更短；大的年老代会减少Full GC的频率。
+			 c.如果存在大量的临时对象，应该选择更大的年轻代；如果存放相对较多的持久对象，年老代就需要适当增加。
+			   原则：
+			   	1.Full GC 尽量少的原则，让年老代建立缓存常用的对象，JVM的默认比例1：2同理。
+			   	2.通过观察应用一段时间，看其他在峰值时年老代会占用多少内存，在不影响Full GC的前提下，根据实际情况加大年轻代。
+			 d.在配置较好的机器上，可以为年老代选择并行垃圾收集算法:-XX:UserParallelOldGC，默认为Serial收集。
+			 e.线程堆栈的设置：每个线程默认会开启1M的堆栈，用于存放栈帧、调用参数、局部变量等。对大多数应用而言这个默认值太了，
+			 	一般256K就足用。理论上，在内存不变的情况下，减少每个线程的堆栈，可以产生更多的线程，但这实际上还受限于操作系统
+	4.程序算法：改进程序逻辑算法提供性能
+	
+		
+		
+		
+	常用配置：
+		1.堆设置：
+			-Xms:初始堆大小
+			-Xmx:最大堆大小
+			-XX:NewSize = n: 设置年轻代大小
+			-XX:NewRatio = n:设置年轻代 和 年老代的比例，如：n =3 ,表示年轻代与年老代比值为1：3，年轻代站整个年轻代+年老代总和的1/4.
+			-XX:SubvivorRatio = n:年轻代 中Eden区与俩个Subvivor区的比值。如：n = 3, 表示Eden:Survivor = 3：2,一个Survivor区占整个年轻代的1/5.
+			-XX:MaxPermSize=n:设置永久代大小
+		2.收集器设置：
+			-XX:+UserSerialGC:设置串行收集器
+			-XX:+UserParallelGC:设置并行收集器
+			-XX:+UserParallelOldGC:设置老年代并行收集器
+			-XX:+UseConcMarkSweepGC:设置并发收集器
+		3.垃圾回收统计
+			-XX:+PrintGC
+			-XX:+PrintGCDetail
+			-XX:+PrintGCTimeStamps
+			-Xloggc:filename
+		4.并行收集器设置：
+			-XX:ParallelGCThreads = n: 设置并行收集器收集时使用的CPU数。并行收集线程数。
+			-XX:MaxGCPauseMillis = n:设置并行收集器最大暂停时间
+			-XX:GCTimeRatio = n :设置垃圾回收时间站程序运行时间的百分比。1/(1+n);
+		5.并发收集器设置：
+			-XX:+CMSIncrementalMode:设置增量模式。适用于CPU情况。
+			-XX:ParallelGCThreads=n:设置并发收集器年轻代收集方式为并行收集时，使用的CPU数，并行收集线程数。
+	
+	JVM调优：
+		1.年轻代大小选择：
+			响应时间优先的应用：尽可能设大，直接接近系统的最低响应时间限制，根据实际情况选择。在这种情况下：年轻代收集发生的频率也是最小的。同时，较少到达老年代的对象。
+			吞吐量优先的应用：尽可能的设置大，可能到达Gbit的程度。因为对响应时间没要求，垃圾收集可以并发进行。8CPU
+		2.年老代大小选择：
+			响应时间优先的应用：年老代使用并发收集器，所以其大小需要小心设置，一般要考虑并发会话率和会话持续时间等一些参数。
+			减少年轻代和老年代花费的时间，一般会提供应用的效率。
+			吞吐量优先的应用：一般吞吐量优先的应用都有一个很大的年轻代和一个很小的年老代。原因是，这样可以尽可能回收掉大部分短期对象，较少中期的对象，而年老代尽存放长期存活对象。
+			
+		3.较小堆引起的碎片问题
+			因为年老代的并发收集器使用标记、消除算法，所以不会对堆进行压缩。当收集器回收时，他会把相邻的空间进行合并，这样可以分配给较大的对象。但是当堆空间较小时，运行一段时间以后，就会出现"碎片"，如果并发收集器找不到足够的空间，那么并发收集器就会停止。然后使用传统的标记、消除方式进行回收。
+			如果出现"碎片"，可能需要进行如下配置：
+			-XX:+UseCMSCompactAtFullCollection:使用并发收集器时，开启对老年代的压缩
+			-XX:+CMSFullGCsBeforeCompaction=0:上面配置开启的情况下，设置多少次Full GC后，对年老代进行压缩。
+				
+	实战(一)：
+		java -Xmx3550M -Xms3550M -Xmn2g -Xss128K
+		-Xmx3550M :设置JVM堆最大可用内存为3550M
+		-Xms3550M :设置JVM堆初始化可用内存为3550M。此值可以设置与-Xmx相同，以避免每次垃圾回收完成后JVM重新分配内存
+		-Xmn2G	  :设置年轻代大小为2G。整个JVM内存大小 = 年轻代大小 + 年老代大小 + 持久代大小。
+			   	   持久代一般固定大小为64M,所以增大年轻代后，将会减少年老代大小。此值对系统性能影响较大。Sun官方推荐配置为整个堆大小的3/8.
+		-Xss128K  :设置每个线程的堆大小。
+	实战(二)：
+		java -Xmx3550M -Xms3550M -Xss128K -XX:NewRatio=4 -XX:SurvivorRatio=4 -XX:MaxPermSize=16M -XX:MaxTenuringThreshold=0
+		
+		-XX:NewRatio = 4: 设置年轻代与年老代的比值。设置为4，则年轻代与老年代所占比值为1：4，年轻代占整个堆的1/5
+		-XX:SurvivorRatio = 4:设置年轻代中得Eden和俩个Survivor区的大小比值。设置为4，则俩个Survivor区与一个Eden区的比值2:4,一个Survivor区站整个年轻代1/6;
+		-XX:MaxPermSize=16M:设置永久代大小为16M。
+		-XX:MaxTenuringThreshold=0:设置垃圾最大年龄。如果这是为0的话，则年轻代对象不经过Survivor区，直接进入年老代。对于年老代比较多得应用，可以提高效率。
+		
+		
+		
+		
+五：类加载机制
+	类加载过程：
+		1.寻找jre目录，寻找jvm.dll ，并初始化JVM
+		2.产生一个Bootstrap Loader（启动类加载器）
+		3.Bootstrap Loader自动加载 Extended Loader(标准扩展加载类)，并将其父Loader设置为Bootstrap Loader.
+		4.Bootstrap Loader自动加载 AppClass Loader(系统类加载器),并将其父Loader设为Extended Loader.
+		5.最后由AppClass Loader加载类。
+		
+	详细步骤：
+		1.BootStrap Loader(启动类加载器):加载System.getProperty("sun.boot.class.path")所指定的路径或jar.
+		2.Extended  Loader(标准扩展加载器ExtClassLoader):加载System.getProperty("java.ext.dirs")所指定的路径或jar。在使用JAVA运行程序时，也可以指定其所搜路径。例如：java -Djava.ext.dirs = xxxxx/classes xxxx
+		3.AppClass  Loader(系统类加载器AppClassLoader):加载System.getProperty("java.class.path")所指定的路径或jar。在使用JAVA运行时，也可以加上-cp 来覆盖原有的ClassPath设置，例如：java -cp ./xxxx/classes xxxx
+		ExtClassLoader 和 AppClassLoader在JVM启动后，会在JVM中保存一份，并在程序运行中无法该变其搜索路径。如果想在运行时从其他搜索路径加载类，就要产生新的类加载器。
+		
+	类加载器的特点：
+		1.运行一个程序时，总师由AppClass Loader(系统类加载器)开始加载指定的类。
+		2.在加载类时，每个类加载器会将加载任务上交给其父，如果其父找不到，再由自己去加载。
+		3.Bootstrap Loader(启动类加载器)是最顶级的类加载器了，器父加载为null。
+	
+	类加载的方式：
+		1.命令行启动应用的时候由JVM初始化加载
+		2.通过Class.forName()方法动态加载
+		3.通过ClassLoader.loadClass()方法动态加载
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
